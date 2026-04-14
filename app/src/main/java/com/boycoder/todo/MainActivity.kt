@@ -12,6 +12,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import java.util.concurrent.TimeUnit
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 
 class MainActivity : AppCompatActivity() {
@@ -128,7 +129,7 @@ class MainActivity : AppCompatActivity() {
             // Refactored using `apply`
             taskViewModel.addTask(Task("Doctor appointment", "Annual physical checkup").apply {
                 priority = "High"
-                dueDate = System.currentTimeMillis() + 86400000 // Tomorrow
+                dueDate = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(1) // Tomorrow
             })
 
             taskViewModel.addTask(Task("Buy groceries", "Milk, Eggs, Bread").apply {
