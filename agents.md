@@ -20,7 +20,11 @@ This document outlines the general guidelines and best practices for Agents when
 
 ### 2.1 Prioritize Specialized Tools
 * **No Shell Scripts for File Edits**: It is **strictly prohibited** to use `run_shell_command` with commands like `sed`, `awk`, `perl`, or `echo >` to modify files directly. These operations bypass the IDE's memory buffers, destroy the user's unsaved changes, and cause data loss.
-* **Use Standard APIs**: Always use the system-provided tools such as `write_file`, `replace_file_content`, or `multi_replace_file_content` to perform file modifications.
+* **Use Standard APIs for Modification**: Always use the system-provided tools such as `write_file`, `replace_file_content`, or `multi_replace_file_content` to perform file modifications.
+* **Shell as a Fallback for File System Operations**: For operations that do not have a dedicated tool (e.g., deleting files with `rm`, moving/renaming with `mv`, or creating directories with `mkdir`), you may use `run_shell_command`. 
+    * **Precedence**: Always check if a specialized tool (like `list_files`, `find_files`, `grep`, `read_file`) can achieve your goal before falling back to the shell.
+    * **Strict Constraint**: The "No Shell Edits" rule still applies—never use shell to change the *content* of a file.
+    * **Caution**: When performing destructive operations like `rm` or `mv`, ensure the project state is stable and the operation is truly necessary.
 
 ### 2.2 The "Read Before Write" Principle
 * Before modifying any file, you **must** use tools like `read_file` to view its actual, current content. Never blindly replace file contents based on generic templates or prior knowledge.
