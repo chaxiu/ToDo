@@ -4,7 +4,13 @@ import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.lang.reflect.Type
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import com.google.gson.reflect.TypeToken
 import okhttp3.Call
 import okhttp3.Callback
@@ -25,101 +31,130 @@ class TaskViewModel : ViewModel() {
     private val baseUrl = "http://192.168.0.102:8000/api/tasks"
     private val jsonMediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
 
-    fun fetchTasks() {
-        val request = Request.Builder()
-            .url("$baseUrl/list")
-            .post("{}".toRequestBody(jsonMediaType))
-            .build()
+    /**
+     * A generic wrapper that turns OkHttp's Callback into a coroutine `suspend` function.
+     * Uses suspendCancellableCoroutine to support structured concurrency cancellation.
+     */
+    private suspend fun <T> executeRequest(request: Request, typeOfT: Type): T? = suspendCancellableCoroutine { continuation ->
+        val call = client.newCall(request)
 
-        client.newCall(request).enqueue(object : Callback {
+        // If the coroutine is cancelled (e.g. ViewModel is cleared), cancel the OkHttp network request!
+        continuation.invokeOnCancellation {
+            call.cancel()
+        }
+
+        call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                Log.e("TaskViewModel", "Failed to fetch tasks", e)
+                continuation.resumeWithException(e)
             }
 
             override fun onResponse(call: Call, response: Response) {
                 if (response.isSuccessful) {
-                    val responseBody = response.body?.string()
-                    if (responseBody != null) {
-                        val taskListType = object : TypeToken<List<Task>>() {}.type
-                        val fetchedTasks: List<Task> = gson.fromJson(responseBody, taskListType)
-                        _tasksLiveData.postValue(fetchedTasks)
+                    val body = response.body?.string()
+                    if (body != null) {
+                        try {
+                            val result: T = gson.fromJson(body, typeOfT)
+                            continuation.resume(result)
+                        } catch (e: Exception) {
+                            continuation.resumeWithException(e)
+                        }
+                    } else {
+                        continuation.resumeWithException(IOException("Empty body"))
                     }
+                } else {
+                    continuation.resumeWithException(IOException("HTTP Error ${response.code}"))
                 }
             }
         })
+    }
+
+    /**
+     * Overload for simpler calls where we just need a Class token
+     */
+    private suspend fun <T> executeRequest(request: Request, clazz: Class<T>): T? {
+        return executeRequest(request, clazz as Type)
+    }
+
+    fun fetchTasks() {
+        viewModelScope.launch {
+            try {
+                val request = Request.Builder()
+                    .url("$baseUrl/list")
+                    .post("{}".toRequestBody(jsonMediaType))
+                    .build()
+
+                val taskListType = object : TypeToken<List<Task>>() {}.type
+                val fetchedTasks: List<Task>? = executeRequest(request, taskListType)
+                
+                if (fetchedTasks != null) {
+                    _tasksLiveData.value = fetchedTasks // Direct assignment, we are on Main thread!
+                }
+            } catch (e: Exception) {
+                Log.e("TaskViewModel", "Failed to fetch tasks", e)
+            }
+        }
     }
 
     fun addTask(task: Task) {
-        val taskJson = gson.toJson(task)
-        val request = Request.Builder()
-            .url("$baseUrl/add")
-            .post(taskJson.toRequestBody(jsonMediaType))
-            .build()
+        viewModelScope.launch {
+            try {
+                val taskJson = gson.toJson(task)
+                val request = Request.Builder()
+                    .url("$baseUrl/add")
+                    .post(taskJson.toRequestBody(jsonMediaType))
+                    .build()
 
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
+                val addedTask = executeRequest(request, Task::class.java)
+                if (addedTask != null) {
+                    val currentTasks = _tasksLiveData.value ?: emptyList()
+                    _tasksLiveData.value = currentTasks + addedTask
+                }
+            } catch (e: Exception) {
                 Log.e("TaskViewModel", "Failed to add task", e)
             }
-
-            override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    val responseBody = response.body?.string()
-                    if (responseBody != null) {
-                        val addedTask: Task = gson.fromJson(responseBody, Task::class.java)
-                        val currentTasks = _tasksLiveData.value ?: emptyList()
-                        _tasksLiveData.postValue(currentTasks + addedTask)
-                    }
-                }
-            }
-        })
+        }
     }
 
     fun updateTask(updatedTask: Task) {
-        val taskJson = gson.toJson(updatedTask)
-        val request = Request.Builder()
-            .url("$baseUrl/update")
-            .post(taskJson.toRequestBody(jsonMediaType))
-            .build()
+        viewModelScope.launch {
+            try {
+                val taskJson = gson.toJson(updatedTask)
+                val request = Request.Builder()
+                    .url("$baseUrl/update")
+                    .post(taskJson.toRequestBody(jsonMediaType))
+                    .build()
 
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                Log.e("TaskViewModel", "Failed to update task", e)
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    val responseBody = response.body?.string()
-                    if (responseBody != null) {
-                        val returnedTask: Task = gson.fromJson(responseBody, Task::class.java)
-                        val currentTasks = _tasksLiveData.value ?: emptyList()
-                        _tasksLiveData.postValue(currentTasks.map { task ->
-                            if (task.id == returnedTask.id) returnedTask else task
-                        })
+                val returnedTask = executeRequest(request, Task::class.java)
+                if (returnedTask != null) {
+                    val currentTasks = _tasksLiveData.value ?: emptyList()
+                    _tasksLiveData.value = currentTasks.map { task ->
+                        if (task.id == returnedTask.id) returnedTask else task
                     }
                 }
+            } catch (e: Exception) {
+                Log.e("TaskViewModel", "Failed to update task", e)
             }
-        })
+        }
     }
 
     fun deleteTask(taskId: String) {
-        val jsonBody = """{"id": "$taskId"}"""
-        val request = Request.Builder()
-            .url("$baseUrl/delete")
-            .post(jsonBody.toRequestBody(jsonMediaType))
-            .build()
+        viewModelScope.launch {
+            try {
+                val jsonBody = """{"id": "$taskId"}"""
+                val request = Request.Builder()
+                    .url("$baseUrl/delete")
+                    .post(jsonBody.toRequestBody(jsonMediaType))
+                    .build()
 
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
+                // We don't really care about parsing the return JSON for delete, just that it succeeded
+                executeRequest(request, Any::class.java) 
+                
+                val currentTasks = _tasksLiveData.value ?: emptyList()
+                _tasksLiveData.value = currentTasks.filter { it.id != taskId }
+            } catch (e: Exception) {
                 Log.e("TaskViewModel", "Failed to delete task", e)
             }
-
-            override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    val currentTasks = _tasksLiveData.value ?: emptyList()
-                    _tasksLiveData.postValue(currentTasks.filter { it.id != taskId })
-                }
-            }
-        })
+        }
     }
 
     fun getActiveTaskCount(): Int {
