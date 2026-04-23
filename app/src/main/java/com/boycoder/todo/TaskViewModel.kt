@@ -27,8 +27,10 @@ class TaskViewModel : ViewModel() {
 
     private val client = OkHttpClient()
     private val gson = Gson()
-    // For real devices on the same WiFi, use your Mac's physical LAN IP
-    private val baseUrl = "http://192.168.0.102:8000/api/tasks"
+
+    private val _userLiveData = MutableLiveData<User?>()
+    val user: LiveData<User?> = _userLiveData
+
     private val jsonMediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
 
     /**
@@ -75,22 +77,36 @@ class TaskViewModel : ViewModel() {
         return executeRequest(request, clazz as Type)
     }
 
-    fun fetchTasks() {
+    private suspend fun fetchUserProfile(): User? {
+        val request = Request.Builder()
+            .url(ApiConstants.PATH_USER_PROFILE)
+            .post("{}".toRequestBody(jsonMediaType))
+            .build()
+        return executeRequest(request, User::class.java)
+    }
+
+    private suspend fun fetchTaskList(): List<Task>? {
+        val request = Request.Builder()
+            .url(ApiConstants.PATH_TASK_LIST)
+            .post("{}".toRequestBody(jsonMediaType))
+            .build()
+        val taskListType = object : TypeToken<List<Task>>() {}.type
+        return executeRequest(request, taskListType)
+    }
+
+    fun loadDashboardData() {
         viewModelScope.launch {
             try {
-                val request = Request.Builder()
-                    .url("$baseUrl/list")
-                    .post("{}".toRequestBody(jsonMediaType))
-                    .build()
-
-                val taskListType = object : TypeToken<List<Task>>() {}.type
-                val fetchedTasks: List<Task>? = executeRequest(request, taskListType)
+                // SEQUENTIAL CALLS (The anti-pattern they need to fix in the homework)
+                val user = fetchUserProfile() 
+                _userLiveData.value = user
                 
-                if (fetchedTasks != null) {
-                    _tasksLiveData.value = fetchedTasks // Direct assignment, we are on Main thread!
+                val tasks = fetchTaskList()
+                if (tasks != null) {
+                    _tasksLiveData.value = tasks
                 }
             } catch (e: Exception) {
-                Log.e("TaskViewModel", "Failed to fetch tasks", e)
+                Log.e("TaskViewModel", "Failed to load dashboard", e)
             }
         }
     }
@@ -100,7 +116,7 @@ class TaskViewModel : ViewModel() {
             try {
                 val taskJson = gson.toJson(task)
                 val request = Request.Builder()
-                    .url("$baseUrl/add")
+                    .url(ApiConstants.PATH_TASK_ADD)
                     .post(taskJson.toRequestBody(jsonMediaType))
                     .build()
 
@@ -120,7 +136,7 @@ class TaskViewModel : ViewModel() {
             try {
                 val taskJson = gson.toJson(updatedTask)
                 val request = Request.Builder()
-                    .url("$baseUrl/update")
+                    .url(ApiConstants.PATH_TASK_UPDATE)
                     .post(taskJson.toRequestBody(jsonMediaType))
                     .build()
 
@@ -142,7 +158,7 @@ class TaskViewModel : ViewModel() {
             try {
                 val jsonBody = """{"id": "$taskId"}"""
                 val request = Request.Builder()
-                    .url("$baseUrl/delete")
+                    .url(ApiConstants.PATH_TASK_DELETE)
                     .post(jsonBody.toRequestBody(jsonMediaType))
                     .build()
 

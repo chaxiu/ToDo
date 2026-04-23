@@ -3,20 +3,23 @@ package com.boycoder.todo
 import android.content.Intent
 import android.os.Bundle
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.resource.bitmap.CircleCrop
 import java.util.concurrent.TimeUnit
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var taskViewModel: TaskViewModel
+    private val taskViewModel: TaskViewModel by viewModels()
     private lateinit var taskAdapter: TaskAdapter
 
     private val taskDetailLauncher = registerForActivityResult(
@@ -62,16 +65,18 @@ class MainActivity : AppCompatActivity() {
 
         val recyclerView: RecyclerView = findViewById(R.id.recycler_view_tasks)
         val fab: FloatingActionButton = findViewById(R.id.fab_add_task)
-        val header: android.view.View = findViewById(R.id.text_header)
+        val userProfileLayout: android.view.View = findViewById(R.id.layout_user_profile)
+        val usernameText: TextView = findViewById(R.id.text_username)
+        val avatarImage: ImageView = findViewById(R.id.image_avatar)
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { _, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
 
-            header.setPadding(
-                header.paddingLeft,
+            userProfileLayout.setPadding(
+                userProfileLayout.paddingLeft,
                 systemBars.top,
-                header.paddingRight,
-                header.paddingBottom
+                userProfileLayout.paddingRight,
+                userProfileLayout.paddingBottom
             )
 
             val recyclerPaddingBottomPx = (88 * resources.displayMetrics.density).toInt()
@@ -109,15 +114,21 @@ class MainActivity : AppCompatActivity() {
         )
         recyclerView.adapter = taskAdapter
 
-        taskViewModel = ViewModelProvider(this)[TaskViewModel::class.java]
+        taskViewModel.user.observe(this) { user ->
+            if (user != null) {
+                usernameText.text = user.username
+                avatarImage.loadAvatar(user.avatarUrl)
+            } else {
+                usernameText.text = "Loading user..."
+            }
+        }
 
         taskViewModel.tasks.observe(this) { tasks ->
             taskAdapter.setTasks(tasks)
 
             val activeCount = taskViewModel.getActiveTaskCount()
-            if (header is TextView) {
-                header.text = "Tasks ($activeCount left)"
-            }
+            val header: TextView = findViewById(R.id.text_header)
+            header.text = "Tasks ($activeCount left)"
         }
 
         fab.setOnClickListener {
@@ -125,7 +136,7 @@ class MainActivity : AppCompatActivity() {
             taskDetailLauncher.launch(intent)
         }
 
-        // Fetch initial tasks from the network
-        taskViewModel.fetchTasks()
+        // Fetch initial data from the network sequentially
+        taskViewModel.loadDashboardData()
     }
 }
