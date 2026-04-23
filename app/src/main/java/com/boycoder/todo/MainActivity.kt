@@ -125,24 +125,7 @@ class MainActivity : AppCompatActivity() {
             taskDetailLauncher.launch(intent)
         }
 
-        if (taskViewModel.tasks.value.isNullOrEmpty()) {
-            // Refactored using `apply`
-            taskViewModel.addTask(Task("Doctor appointment", "Annual physical checkup").apply {
-                priority = "High"
-                dueDate = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(1) // Tomorrow
-            })
-
-            taskViewModel.addTask(Task("Buy groceries", "Milk, Eggs, Bread").apply {
-                priority = "Medium"
-            })
-
-            taskViewModel.addTask(Task("Clean the garage", null))
-
-            taskViewModel.addTask(Task("Read a book", "Finish chapter 3").apply {
-                priority = "Low"
-            })
-
-            taskViewModel.addTask(Task("Call mom", "Wish her happy birthday"))
-        }
+        // Fetch initial tasks from the network
+        taskViewModel.fetchTasks()
     }
 }
