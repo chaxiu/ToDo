@@ -9,6 +9,7 @@
 .cxx
 local.properties
 TodoServer/README.md
+TodoServer/__pycache__
 
 # Custom rules for this project
 /.agent/
