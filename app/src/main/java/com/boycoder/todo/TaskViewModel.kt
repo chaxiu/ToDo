@@ -94,19 +94,38 @@ class TaskViewModel : ViewModel() {
         return executeRequest(request, taskListType)
     }
 
+    // 1. 定义全局异常捕获器（最佳实践：兜底处理未知异常）
+    private val exceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, exception ->
+        Log.e("TaskViewModel", "Caught unhandled exception globally: ${exception.message}", exception)
+        // 实际项目中可以在这里更新 LiveData，通知 UI 弹出 Toast 或 Snackbar
+    }
+
     fun loadDashboardData() {
-        viewModelScope.launch {
-            try {
-                // SEQUENTIAL CALLS (The anti-pattern they need to fix in the homework)
-                val user = fetchUserProfile() 
-                _userLiveData.value = user
-                
-                val tasks = fetchTaskList()
-                if (tasks != null) {
-                    _tasksLiveData.value = tasks
+        // 2. 注入 exceptionHandler
+        viewModelScope.launch(exceptionHandler) {
+            // 3. 使用 supervisorScope 隔离子协程的异常
+            kotlinx.coroutines.supervisorScope {
+                // 启动第一个独立的子协程：专门负责 User
+                launch {
+                    try {
+                        val user = fetchUserProfile()
+                        _userLiveData.value = user
+                    } catch (e: Exception) {
+                        Log.e("TaskViewModel", "Failed to fetch user profile", e)
+                    }
                 }
-            } catch (e: Exception) {
-                Log.e("TaskViewModel", "Failed to load dashboard", e)
+
+                // 启动第二个独立的子协程：专门负责 Tasks
+                launch {
+                    try {
+                        val tasks = fetchTaskList()
+                        if (tasks != null) {
+                            _tasksLiveData.value = tasks
+                        }
+                    } catch (e: Exception) {
+                        Log.e("TaskViewModel", "Failed to fetch task list", e)
+                    }
+                }
             }
         }
     }
