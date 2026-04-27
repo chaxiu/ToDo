@@ -12,6 +12,7 @@ import java.lang.reflect.Type
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.supervisorScope
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -104,7 +105,7 @@ class TaskViewModel : ViewModel() {
         // 2. 注入 exceptionHandler
         viewModelScope.launch(exceptionHandler) {
             // 3. 使用 supervisorScope 隔离子协程的异常
-            kotlinx.coroutines.supervisorScope {
+            supervisorScope {
                 // 启动第一个独立的子协程：专门负责 User
                 launch {
                     try {
