@@ -24,6 +24,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -162,11 +163,13 @@ class MainActivity : AppCompatActivity() {
             taskDetailLauncher.launch(intent)
         }
 
-        // 使用 Flow 替代回调地狱 (但每次按键依然会发出请求)
+        // 引入防抖 (Debounce)
         lifecycleScope.launch {
-            searchEdit.textChanges().collect { query ->
-                taskViewModel.searchTasks(query)
-            }
+            searchEdit.textChanges()
+                .debounce(300) // 等待用户停止输入 300ms 后才继续
+                .collect { query ->
+                    taskViewModel.searchTasks(query)
+                }
         }
 
         // Fetch initial data from the network sequentially
