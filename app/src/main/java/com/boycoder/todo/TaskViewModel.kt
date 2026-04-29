@@ -105,6 +105,10 @@ class TaskViewModel : ViewModel() {
         return executeRequest(request, taskListType)
     }
 
+    fun updateTasksList(tasks: List<Task>) {
+        _tasksLiveData.value = tasks
+    }
+
     fun searchTasks(query: String) {
         viewModelScope.launch {
             try {

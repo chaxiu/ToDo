@@ -25,7 +25,11 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 
 class MainActivity : AppCompatActivity() {
     private val taskViewModel: TaskViewModel by viewModels()
@@ -84,6 +88,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -163,12 +168,21 @@ class MainActivity : AppCompatActivity() {
             taskDetailLauncher.launch(intent)
         }
 
-        // 引入防抖 (Debounce)
+        // 解决并发与乱序 (flatMapLatest)
         lifecycleScope.launch {
             searchEdit.textChanges()
-                .debounce(300) // 等待用户停止输入 300ms 后才继续
-                .collect { query ->
-                    taskViewModel.searchTasks(query)
+                .debounce(300)
+                .flatMapLatest { query ->
+                    flow {
+                        // 发出挂起函数的请求结果
+                        val result = taskViewModel.searchTasksSuspend(query)
+                        emit(result)
+                    }
+                }
+                .collect { tasks ->
+                    if (tasks != null) {
+                        taskViewModel.updateTasksList(tasks)
+                    }
                 }
         }
 
