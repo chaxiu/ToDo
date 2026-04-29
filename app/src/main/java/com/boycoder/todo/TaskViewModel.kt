@@ -95,6 +95,30 @@ class TaskViewModel : ViewModel() {
         return executeRequest(request, taskListType)
     }
 
+    suspend fun searchTasksSuspend(query: String): List<Task>? {
+        val jsonBody = """{"query": "$query"}"""
+        val request = Request.Builder()
+            .url(ApiConstants.PATH_TASK_SEARCH)
+            .post(jsonBody.toRequestBody(jsonMediaType))
+            .build()
+        val taskListType = object : TypeToken<List<Task>>() {}.type
+        return executeRequest(request, taskListType)
+    }
+
+    fun searchTasks(query: String) {
+        viewModelScope.launch {
+            try {
+                Log.d("TaskViewModel", "Searching for: $query")
+                val tasks = searchTasksSuspend(query)
+                if (tasks != null) {
+                    _tasksLiveData.value = tasks
+                }
+            } catch (e: Exception) {
+                Log.e("TaskViewModel", "Failed to search tasks", e)
+            }
+        }
+    }
+
     // 1. 定义全局异常捕获器（最佳实践：兜底处理未知异常）
     private val exceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, exception ->
         Log.e("TaskViewModel", "Caught unhandled exception globally: ${exception.message}", exception)

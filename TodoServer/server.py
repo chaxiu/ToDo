@@ -23,6 +23,9 @@ class Task(BaseModel):
 class DeleteRequest(BaseModel):
     id: str
 
+class SearchRequest(BaseModel):
+    query: str
+
 # In-memory mock data
 tasks_db: List[Task] = [
     Task(
@@ -103,6 +106,22 @@ async def delete_task(req: DeleteRequest):
     global tasks_db
     tasks_db = [t for t in tasks_db if t.id != req.id]
     return {"success": True, "id": req.id}
+
+@app.post("/api/tasks/search", response_model=List[Task])
+async def search_tasks(req: SearchRequest):
+    # Simulate network delay (0.5s - 1.5s) to make concurrent out-of-order issues obvious
+    import random
+    await asyncio.sleep(random.uniform(0.5, 1.5))
+    
+    query = req.query.lower()
+    if not query:
+        return tasks_db
+        
+    results = [
+        task for task in tasks_db 
+        if query in task.title.lower() or (task.description and query in task.description.lower())
+    ]
+    return results
 
 if __name__ == "__main__":
     import uvicorn
