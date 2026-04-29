@@ -12,6 +12,14 @@ import java.lang.reflect.Type
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.supervisorScope
 import okhttp3.Call
 import okhttp3.Callback
@@ -23,8 +31,28 @@ import okhttp3.Response
 import java.io.IOException
 
 class TaskViewModel : ViewModel() {
-    private val _tasksLiveData = MutableLiveData<List<Task>>(emptyList())
-    val tasks: LiveData<List<Task>> = _tasksLiveData
+    // 用于接收 UI 层的搜索关键词流
+    private val _searchQuery = MutableStateFlow("")
+
+    // 将搜索流转换为结果流，暴露给 UI 层
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.FlowPreview::class)
+    val searchResults: StateFlow<List<Task>> = _searchQuery
+        .debounce(300)
+        .flatMapLatest { query ->
+            flow {
+                val result = searchTasksSuspend(query) ?: emptyList()
+                emit(result)
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
 
     private val client = OkHttpClient()
     private val gson = Gson()
@@ -105,23 +133,6 @@ class TaskViewModel : ViewModel() {
         return executeRequest(request, taskListType)
     }
 
-    fun updateTasksList(tasks: List<Task>) {
-        _tasksLiveData.value = tasks
-    }
-
-    fun searchTasks(query: String) {
-        viewModelScope.launch {
-            try {
-                Log.d("TaskViewModel", "Searching for: $query")
-                val tasks = searchTasksSuspend(query)
-                if (tasks != null) {
-                    _tasksLiveData.value = tasks
-                }
-            } catch (e: Exception) {
-                Log.e("TaskViewModel", "Failed to search tasks", e)
-            }
-        }
-    }
 
     // 1. 定义全局异常捕获器（最佳实践：兜底处理未知异常）
     private val exceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, exception ->
@@ -143,18 +154,8 @@ class TaskViewModel : ViewModel() {
                         Log.e("TaskViewModel", "Failed to fetch user profile", e)
                     }
                 }
-
-                // 启动第二个独立的子协程：专门负责 Tasks
-                launch {
-                    try {
-                        val tasks = fetchTaskList()
-                        if (tasks != null) {
-                            _tasksLiveData.value = tasks
-                        }
-                    } catch (e: Exception) {
-                        Log.e("TaskViewModel", "Failed to fetch task list", e)
-                    }
-                }
+                
+                // Tasks 的加载现在由 searchResults Flow 自动触发
             }
         }
     }
@@ -170,8 +171,8 @@ class TaskViewModel : ViewModel() {
 
                 val addedTask = executeRequest(request, Task::class.java)
                 if (addedTask != null) {
-                    val currentTasks = _tasksLiveData.value ?: emptyList()
-                    _tasksLiveData.value = currentTasks + addedTask
+                    // 重新触发搜索以刷新列表
+                    _searchQuery.value = _searchQuery.value
                 }
             } catch (e: Exception) {
                 Log.e("TaskViewModel", "Failed to add task", e)
@@ -190,10 +191,8 @@ class TaskViewModel : ViewModel() {
 
                 val returnedTask = executeRequest(request, Task::class.java)
                 if (returnedTask != null) {
-                    val currentTasks = _tasksLiveData.value ?: emptyList()
-                    _tasksLiveData.value = currentTasks.map { task ->
-                        if (task.id == returnedTask.id) returnedTask else task
-                    }
+                    // 重新触发搜索以刷新列表
+                    _searchQuery.value = _searchQuery.value
                 }
             } catch (e: Exception) {
                 Log.e("TaskViewModel", "Failed to update task", e)
@@ -213,8 +212,8 @@ class TaskViewModel : ViewModel() {
                 // We don't really care about parsing the return JSON for delete, just that it succeeded
                 executeRequest(request, Any::class.java) 
                 
-                val currentTasks = _tasksLiveData.value ?: emptyList()
-                _tasksLiveData.value = currentTasks.filter { it.id != taskId }
+                // 重新触发搜索以刷新列表
+                _searchQuery.value = _searchQuery.value
             } catch (e: Exception) {
                 Log.e("TaskViewModel", "Failed to delete task", e)
             }
@@ -223,11 +222,11 @@ class TaskViewModel : ViewModel() {
 
     fun getActiveTaskCount(): Int {
         // Refactored using Kotlin Collection operators
-        return _tasksLiveData.value?.count { !it.isCompleted } ?: 0
+        return searchResults.value.count { !it.isCompleted }
     }
 
     fun getActiveTasks(): List<Task> {
         // Refactored using Kotlin Collection operators
-        return _tasksLiveData.value?.filter { !it.isCompleted } ?: emptyList()
+        return searchResults.value.filter { !it.isCompleted }
     }
 }

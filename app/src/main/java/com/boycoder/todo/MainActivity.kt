@@ -19,17 +19,11 @@ import java.util.concurrent.TimeUnit
 import android.text.Editable
 import android.text.TextWatcher
 import android.widget.EditText
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.FlowPreview
 
 class MainActivity : AppCompatActivity() {
     private val taskViewModel: TaskViewModel by viewModels()
@@ -50,7 +44,7 @@ class MainActivity : AppCompatActivity() {
                 val id = data.getStringExtra(TaskDetailActivity.EXTRA_TASK_ID)
 
                 // Refactored using Kotlin's 'find'
-                taskViewModel.tasks.value?.find { it.id == id }?.let { existingTask ->
+                taskViewModel.searchResults.value.find { it.id == id }?.let { existingTask ->
                     // Refactored using 'copy' from data class, removing mutable setters on original object!
                     val updatedTask = existingTask.copy(
                         title = title,
@@ -71,24 +65,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 使用 callbackFlow 将基于回调的 API 转换为冷流
-    private fun EditText.textChanges(): Flow<String> = callbackFlow {
-        val watcher = object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                trySend(s?.toString() ?: "")
-            }
-        }
-        addTextChangedListener(watcher)
-        
-        // 挂起协程，直到流被取消或关闭时执行清理操作
-        awaitClose {
-            removeTextChangedListener(watcher)
-        }
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -155,35 +131,30 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        taskViewModel.tasks.observe(this) { tasks ->
-            taskAdapter.setTasks(tasks)
-
-            val activeCount = taskViewModel.getActiveTaskCount()
-            val header: TextView = findViewById(R.id.text_header)
-            header.text = "Tasks ($activeCount left)"
-        }
-
         fab.setOnClickListener {
             val intent = Intent(this@MainActivity, TaskDetailActivity::class.java)
             taskDetailLauncher.launch(intent)
         }
 
-        // 解决并发与乱序 (flatMapLatest)
+        // 状态暴露与生命周期安全 (StateFlow + repeatOnLifecycle)
+        searchEdit.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                taskViewModel.setSearchQuery(s?.toString() ?: "")
+            }
+        })
+
         lifecycleScope.launch {
-            searchEdit.textChanges()
-                .debounce(300)
-                .flatMapLatest { query ->
-                    flow {
-                        // 发出挂起函数的请求结果
-                        val result = taskViewModel.searchTasksSuspend(query)
-                        emit(result)
-                    }
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                taskViewModel.searchResults.collect { tasks ->
+                    taskAdapter.setTasks(tasks)
+                    
+                    val activeCount = tasks.count { !it.isCompleted }
+                    val header: TextView = findViewById(R.id.text_header)
+                    header.text = "Tasks ($activeCount left)"
                 }
-                .collect { tasks ->
-                    if (tasks != null) {
-                        taskViewModel.updateTasksList(tasks)
-                    }
-                }
+            }
         }
 
         // Fetch initial data from the network sequentially
