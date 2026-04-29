@@ -40,8 +40,13 @@ class TaskViewModel : ViewModel() {
         .debounce(300)
         .flatMapLatest { query ->
             flow {
-                val result = searchTasksSuspend(query) ?: emptyList()
-                emit(result)
+                try {
+                    val result = searchTasksSuspend(query) ?: emptyList()
+                    emit(result)
+                } catch (e: Exception) {
+                    Log.e("TaskViewModel", "Failed to search tasks", e)
+                    emit(emptyList()) // 发生异常时，发射空列表，确保流不会中断
+                }
             }
         }
         .stateIn(
