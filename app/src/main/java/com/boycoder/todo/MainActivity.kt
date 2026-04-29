@@ -19,7 +19,12 @@ import java.util.concurrent.TimeUnit
 import android.text.Editable
 import android.text.TextWatcher
 import android.widget.EditText
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
     private val taskViewModel: TaskViewModel by viewModels()
@@ -58,6 +63,23 @@ class MainActivity : AppCompatActivity() {
                 }
                 taskViewModel.addTask(newTask)
             }
+        }
+    }
+
+    // 使用 callbackFlow 将基于回调的 API 转换为冷流
+    private fun EditText.textChanges(): Flow<String> = callbackFlow {
+        val watcher = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                trySend(s?.toString() ?: "")
+            }
+        }
+        addTextChangedListener(watcher)
+        
+        // 挂起协程，直到流被取消或关闭时执行清理操作
+        awaitClose {
+            removeTextChangedListener(watcher)
         }
     }
 
@@ -140,15 +162,12 @@ class MainActivity : AppCompatActivity() {
             taskDetailLauncher.launch(intent)
         }
 
-        // 原始回调地狱 (反面教材)
-        searchEdit.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                val query = s?.toString() ?: ""
+        // 使用 Flow 替代回调地狱 (但每次按键依然会发出请求)
+        lifecycleScope.launch {
+            searchEdit.textChanges().collect { query ->
                 taskViewModel.searchTasks(query)
             }
-        })
+        }
 
         // Fetch initial data from the network sequentially
         taskViewModel.loadDashboardData()
