@@ -16,6 +16,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.bitmap.CircleCrop
 import java.util.concurrent.TimeUnit
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.EditText
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 
 class MainActivity : AppCompatActivity() {
@@ -65,6 +68,7 @@ class MainActivity : AppCompatActivity() {
 
         val recyclerView: RecyclerView = findViewById(R.id.recycler_view_tasks)
         val fab: FloatingActionButton = findViewById(R.id.fab_add_task)
+        val searchEdit: EditText = findViewById(R.id.edit_search)
         val userProfileLayout: android.view.View = findViewById(R.id.layout_user_profile)
         val usernameText: TextView = findViewById(R.id.text_username)
         val avatarImage: ImageView = findViewById(R.id.image_avatar)
@@ -135,6 +139,16 @@ class MainActivity : AppCompatActivity() {
             val intent = Intent(this@MainActivity, TaskDetailActivity::class.java)
             taskDetailLauncher.launch(intent)
         }
+
+        // 原始回调地狱 (反面教材)
+        searchEdit.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val query = s?.toString() ?: ""
+                taskViewModel.searchTasks(query)
+            }
+        })
 
         // Fetch initial data from the network sequentially
         taskViewModel.loadDashboardData()
